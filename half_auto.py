@@ -46,7 +46,7 @@ def main(theUrl,method,theReqMethod="get",theCheckMethod="textA",theKeyString=""
         exit()
 
 def binarySearch(thePrv=32,theLast=126):
-    #thePrv是二分法的最小值
+    #thePrv是二分法的最小值 
     #theLast是二分法的最大值
     #这里提供了两种方法,其中第1种包含符号>=,第2种只包含>,采用如下的model变量选择
     #注意两种方式while循环条件和prv值并不相同
