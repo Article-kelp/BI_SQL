@@ -1,6 +1,3 @@
-from email import header
-from operator import mod
-from flask import redirect
 import requests as res
 import string
 import traceback
